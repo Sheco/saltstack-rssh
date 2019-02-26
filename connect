@@ -1,0 +1,51 @@
+#!/bin/bash
+
+name=$1
+rsshport=$2
+hostname=salt
+hostport=22
+
+if [ "$name" = "" ]
+then
+  cat <<EOF
+Usage: $0 {minion-name}
+
+minion-name: the name of the minion as perceived by the salt master
+
+EOF
+  exit
+fi
+
+function openPort {
+   min=$1
+   max=$2
+   for port in $(seq $min $max)
+   do
+     if ! netstat -pant | grep -q ":$port\s" 
+     then
+       echo $port
+       return
+     fi
+   done
+}
+
+rsshport=$(openPort 25000 26000) 
+if [ "$rsshport" = "" ]
+then
+  echo "Couldn't find an open port"
+  exit 1
+fi
+
+salt $name cmd.run "ssh -oStrictHostKeyChecking=no rssh@$hostname -p $hostport -R $rsshport:localhost:22 'sleep 60'" >/dev/null &
+saltpid=$!
+
+while ! ssh root@localhost -p $rsshport -oStrictHostKeyChecking=no
+do
+  # the salt process finished, maybe the rssh finished and
+  # we couldn't connect in time or it never opened in the first place
+  ps -p $saltpid >/dev/null || break
+
+  echo "Trying to connect... if this takes too long, you interrupt it."
+  sleep 1
+done
+

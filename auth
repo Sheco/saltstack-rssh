@@ -1,0 +1,29 @@
+#!/bin/bash
+
+name=$1
+authorized_keys=/home/rssh/.ssh/authorized_keys
+
+if [ ! -e  $authorized_keys ] 
+then
+  echo "Creating rssh user..."
+  useradd -m rssh
+  install -o rssh -m 0700 -d $(dirname $authorized_keys)
+  install -o rssh -m 0600 /dev/null $authorized_keys
+fi
+
+# connect to the minion, get its public key
+# create it if it doesn't exist
+id_rsa=/root/.ssh/id_rsa
+pubkey=$(salt $name cmd.run "[ -e $id_rsa.pub ] || ssh-keygen -q -f $id_rsa -N ''; cat $id_rsa.pub" | sed -e '1d' -e 's/^ *//')
+
+[ "$pubkey" = "" ] && exit 1
+
+if ! grep -q "$pubkey" $authorized_keys
+then 
+  echo "Installing the minion's public key to rssh"
+  echo "$pubkey" >> $authorized_keys
+fi
+
+# apply a state that makes sure the minion has our public key
+salt $name state.apply v3.ssh_auth > /dev/null
+
